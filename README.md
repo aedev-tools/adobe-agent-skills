@@ -87,6 +87,10 @@ Plus query scripts that read your project state progressively — from a lightwe
 Found a bug? Have a feature request or idea?
 [Open an issue](https://github.com/aedev-tools/adobe-agent-skills/issues) — let's build this together.
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=aedev-tools/adobe-agent-skills&type=date&legend=top-left)](https://www.star-history.com/)
+
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE) for details.
