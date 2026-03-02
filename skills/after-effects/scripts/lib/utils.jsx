@@ -79,3 +79,79 @@ function getBlendModeName(mode) {
     }
     return "unknown";
 }
+
+// Get active comp or write error and return null
+function getActiveComp() {
+    var comp = app.project.activeItem;
+    if (!comp || !(comp instanceof CompItem)) {
+        writeResult({ error: "No active composition" });
+        return null;
+    }
+    return comp;
+}
+
+// Get selected layers, or all layers if none selected
+function getSelectedOrAllLayers(comp) {
+    var layers = comp.selectedLayers;
+    if (layers.length > 0) return layers;
+    var all = [];
+    for (var i = 1; i <= comp.numLayers; i++) {
+        all.push(comp.layer(i));
+    }
+    return all;
+}
+
+// Convert hex color string to [r, g, b] array (0-1 range)
+function hexToRGB(hex) {
+    hex = hex.replace(/^#/, "");
+    if (hex.length === 3) {
+        hex = hex.charAt(0) + hex.charAt(0) + hex.charAt(1) + hex.charAt(1) + hex.charAt(2) + hex.charAt(2);
+    }
+    var r = parseInt(hex.substring(0, 2), 16) / 255;
+    var g = parseInt(hex.substring(2, 4), 16) / 255;
+    var b = parseInt(hex.substring(4, 6), 16) / 255;
+    return [r, g, b];
+}
+
+// Find comp in project by name
+function getCompByName(name) {
+    for (var i = 1; i <= app.project.numItems; i++) {
+        var item = app.project.item(i);
+        if (item instanceof CompItem && item.name === name) return item;
+    }
+    return null;
+}
+
+// Recursive property tree walker — calls leafFn(prop, path) on each leaf property
+function walkProperties(group, leafFn, path) {
+    if (path === undefined) path = "";
+    for (var i = 1; i <= group.numProperties; i++) {
+        var prop = group.property(i);
+        var propPath = path ? (path + " > " + prop.name) : prop.name;
+        if (prop.propertyType === PropertyType.PROPERTY) {
+            leafFn(prop, propPath);
+        } else if (prop.propertyType === PropertyType.INDEXED_GROUP ||
+                   prop.propertyType === PropertyType.NAMED_GROUP) {
+            walkProperties(prop, leafFn, propPath);
+        }
+    }
+}
+
+// ES3-compatible bubble sort (in-place)
+function bubbleSort(arr, compareFn) {
+    for (var i = 0; i < arr.length - 1; i++) {
+        for (var j = i + 1; j < arr.length; j++) {
+            if (compareFn(arr[j], arr[i]) < 0) {
+                var tmp = arr[i];
+                arr[i] = arr[j];
+                arr[j] = tmp;
+            }
+        }
+    }
+    return arr;
+}
+
+// Convert frame count to seconds using comp's frame duration
+function framesToSeconds(frames, comp) {
+    return frames * comp.frameDuration;
+}

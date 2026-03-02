@@ -28,38 +28,39 @@ For every user request:
 
 ### Step 1: Gather context (auto-run, no confirmation needed)
 
-Run the active state query:
+Use `--background` for all query scripts — this skips `ae.activate()` so AE doesn't steal focus:
+
 ```bash
-bash scripts/runner.sh scripts/active-state.jsx
+bash scripts/runner.sh --background scripts/active-state.jsx
 ```
 Then read `/tmp/ae-assistant-result.json` for active comp, selected layers, CTI.
 
 If this is the first interaction or the project context is unknown, also run:
 ```bash
-bash scripts/runner.sh scripts/project-overview.jsx
+bash scripts/runner.sh --background scripts/project-overview.jsx
 ```
 This returns a **summary** by default: folder tree with counts, all comps listed, footage grouped by file type. NOT every individual file.
 
 To drill into a specific folder:
 ```bash
-bash scripts/runner.sh scripts/project-overview.jsx '{"mode": "folder", "folderName": "Images"}'
+bash scripts/runner.sh --background scripts/project-overview.jsx '{"mode": "folder", "folderName": "Images"}'
 ```
 
 Only use full mode when you actually need every item listed:
 ```bash
-bash scripts/runner.sh scripts/project-overview.jsx '{"mode": "full"}'
+bash scripts/runner.sh --background scripts/project-overview.jsx '{"mode": "full"}'
 ```
 
 ### Step 2: Drill down if needed (auto-run)
 
 If the task targets a specific comp:
 ```bash
-bash scripts/runner.sh scripts/comp-detail.jsx '{"compName": "Comp Name"}'
+bash scripts/runner.sh --background scripts/comp-detail.jsx '{"compName": "Comp Name"}'
 ```
 
 If the task targets specific layers:
 ```bash
-bash scripts/runner.sh scripts/layer-detail.jsx '{"layerNames": ["Layer 1", "Layer 2"]}'
+bash scripts/runner.sh --background scripts/layer-detail.jsx '{"layerNames": ["Layer 1", "Layer 2"]}'
 ```
 
 Omit `compName` to use the active comp. Omit `layerNames` to use selected layers.
@@ -68,19 +69,19 @@ Omit `compName` to use the active comp. Omit `layerNames` to use selected layers
 
 **Expression errors** — scan for broken expressions:
 ```bash
-bash scripts/runner.sh scripts/expression-errors.jsx
-bash scripts/runner.sh scripts/expression-errors.jsx '{"compName": "Main Comp"}'
+bash scripts/runner.sh --background scripts/expression-errors.jsx
+bash scripts/runner.sh --background scripts/expression-errors.jsx '{"compName": "Main Comp"}'
 ```
 
 **Font inventory** — list all fonts used across the project:
 ```bash
-bash scripts/runner.sh scripts/font-inventory.jsx
+bash scripts/runner.sh --background scripts/font-inventory.jsx
 ```
 
 **Project audit** — comprehensive health check (unused footage, missing files, expression errors, duplicate solids, font issues, empty folders):
 ```bash
-bash scripts/runner.sh scripts/project-audit.jsx
-bash scripts/runner.sh scripts/project-audit.jsx '{"checks": ["unused", "missing", "expressions"]}'
+bash scripts/runner.sh --background scripts/project-audit.jsx
+bash scripts/runner.sh --background scripts/project-audit.jsx '{"checks": ["unused", "missing", "expressions"]}'
 ```
 
 ### Step 3: Load domain knowledge
@@ -128,11 +129,8 @@ Every generated script MUST follow this template:
     app.beginUndoGroup("AE Assistant: <action description>");
     try {
         var args = readArgs();
-        var comp = app.project.activeItem;
-        if (!comp || !(comp instanceof CompItem)) {
-            writeResult({ error: "No active composition" });
-            return;
-        }
+        var comp = getActiveComp();
+        if (!comp) return;
 
         // ... action code ...
 
@@ -145,6 +143,24 @@ Every generated script MUST follow this template:
     }
 })();
 ```
+
+#### utils.jsx helpers available for generated scripts
+
+| Function | Purpose |
+|----------|---------|
+| `writeResult(obj)` | Write JSON result to `/tmp/ae-assistant-result.json` |
+| `writeError(msg, detail)` | Last-resort error capture when JSON.stringify fails |
+| `readArgs()` | Read args from `/tmp/ae-assistant-args.json` |
+| `getLayerType(layer)` | Returns type string: "shape", "text", "null", "precomp", etc. |
+| `getBlendModeName(mode)` | BlendingMode enum → string name |
+| `getActiveComp()` | Returns active comp or writes error and returns null |
+| `getSelectedOrAllLayers(comp)` | Selected layers array, or all layers if none selected |
+| `hexToRGB(hex)` | `"#ff0000"` → `[1, 0, 0]` |
+| `getCompByName(name)` | Find comp in project items by name |
+| `walkProperties(group, leafFn, path)` | Recursive property tree walker — calls `leafFn(prop, path)` on leaves |
+| `bubbleSort(arr, compareFn)` | ES3-compatible in-place sort |
+| `framesToSeconds(frames, comp)` | Frame count → seconds via `comp.frameDuration` |
+| `appendLog(message)` | Append to `~/.ae-assistant-extendscript.log` |
 
 **Write the script using the Write tool, then execute with a short bash command:**
 
@@ -329,6 +345,47 @@ bash "$SKILL_SCRIPTS/runner.sh" "$SKILL_SCRIPTS/purge-cache.jsx"
 bash "$SKILL_SCRIPTS/runner.sh" "$SKILL_SCRIPTS/purge-cache.jsx" '{"memory": true, "disk": false}'
 ```
 
+**Trim Comp to Content** — trim/extend comp duration to exactly fit layer content:
+```bash
+bash "$SKILL_SCRIPTS/runner.sh" "$SKILL_SCRIPTS/trim-comp-to-content.jsx"
+bash "$SKILL_SCRIPTS/runner.sh" "$SKILL_SCRIPTS/trim-comp-to-content.jsx" '{"padding": 0.5}'
+bash "$SKILL_SCRIPTS/runner.sh" "$SKILL_SCRIPTS/trim-comp-to-content.jsx" '{"recursive": true}'
+```
+
+**Null from Layers** — create a null at each selected layer's position, auto-parent:
+```bash
+bash "$SKILL_SCRIPTS/runner.sh" "$SKILL_SCRIPTS/null-from-layers.jsx"
+bash "$SKILL_SCRIPTS/runner.sh" "$SKILL_SCRIPTS/null-from-layers.jsx" '{"naming": "custom", "prefix": "Driver"}'
+bash "$SKILL_SCRIPTS/runner.sh" "$SKILL_SCRIPTS/null-from-layers.jsx" '{"position": "comp-center"}'
+```
+
+**Fit to Comp** — scale selected layers to fit/fill comp dimensions:
+```bash
+bash "$SKILL_SCRIPTS/runner.sh" "$SKILL_SCRIPTS/fit-to-comp.jsx" '{"mode": "fit"}'
+bash "$SKILL_SCRIPTS/runner.sh" "$SKILL_SCRIPTS/fit-to-comp.jsx" '{"mode": "fill"}'
+bash "$SKILL_SCRIPTS/runner.sh" "$SKILL_SCRIPTS/fit-to-comp.jsx" '{"mode": "stretch"}'
+```
+
+**Label Layers** — batch-set label colors on layers by type, name, or selection:
+```bash
+bash "$SKILL_SCRIPTS/runner.sh" "$SKILL_SCRIPTS/label-layers.jsx" '{"label": 3, "target": "selected"}'
+bash "$SKILL_SCRIPTS/runner.sh" "$SKILL_SCRIPTS/label-layers.jsx" '{"label": 1, "target": "text"}'
+bash "$SKILL_SCRIPTS/runner.sh" "$SKILL_SCRIPTS/label-layers.jsx" '{"label": 5, "target": "all", "nameContains": "BG"}'
+```
+
+**Blend Mode Set** — set blending mode on selected layers:
+```bash
+bash "$SKILL_SCRIPTS/runner.sh" "$SKILL_SCRIPTS/blend-mode-set.jsx" '{"mode": "SCREEN"}'
+bash "$SKILL_SCRIPTS/runner.sh" "$SKILL_SCRIPTS/blend-mode-set.jsx" '{"mode": "MULTIPLY"}'
+bash "$SKILL_SCRIPTS/runner.sh" "$SKILL_SCRIPTS/blend-mode-set.jsx" '{"mode": "ADD"}'
+```
+
+**Split Layer** — split selected layers at CTI (confirm before running — modifies layer timing):
+```bash
+bash "$SKILL_SCRIPTS/runner.sh" "$SKILL_SCRIPTS/split-layer.jsx"
+bash "$SKILL_SCRIPTS/runner.sh" "$SKILL_SCRIPTS/split-layer.jsx" '{"time": 2.5}'
+```
+
 ### Step 6: Execute and read result
 
 ```bash
@@ -358,7 +415,8 @@ When an error occurs, read `~/.ae-assistant-log` to understand what happened, fi
 - ALWAYS wrap in an IIFE to avoid global scope pollution
 - ALWAYS use `var`, never `let` or `const` (ES3)
 - ALWAYS write results to /tmp/ae-assistant-result.json via writeResult()
-- ALWAYS check `comp instanceof CompItem` before accessing comp properties
+- ALWAYS use `getActiveComp()` to get the active comp (handles the null/CompItem check and writes error)
+- ALWAYS use `--background` flag for query scripts to avoid focus-steal
 
 ## FORBIDDEN
 

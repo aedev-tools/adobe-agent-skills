@@ -80,7 +80,24 @@ The skill includes domain knowledge and tooling across the full After Effects sc
 | Rendering | Render queue, output modules, export |
 | Batch Operations | Bulk modifications across layers and comps |
 
-Plus query scripts that read your project state progressively — from a lightweight overview down to individual layer properties — so the agent only loads the context it needs.
+**34 built-in scripts** that handle common tasks without generating code:
+
+| Script | What it does |
+|---|---|
+| Trim Comp to Content | Fit comp duration to layer content |
+| Null from Layers | Create controller nulls, auto-parent |
+| Fit to Comp | Scale layers to fit/fill/stretch to comp |
+| Label Layers | Batch-set label colors by type or name |
+| Blend Mode Set | Set blend mode on selected layers |
+| Split Layer | Split layers at the playhead |
+| Layer Stagger | Stagger layers in time |
+| Batch Rename | Bulk rename layers, comps, or items |
+| Easing Presets | Apply smooth, snappy, or bounce easing |
+| Smart Precompose | Precompose with auto-trimmed duration |
+| True Comp Duplicator | Deep-clone comps with independent sub-comps |
+| …and 23 more | Anchor points, expressions, fonts, rendering, cleanup, etc. |
+
+Plus query scripts that read your project state without stealing focus — from a lightweight overview down to individual layer properties — so the agent only loads the context it needs.
 
 ## Feedback & Issues
 

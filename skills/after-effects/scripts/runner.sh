@@ -1,6 +1,9 @@
 #!/bin/bash
 # runner.sh — Detect AE version, execute ExtendScript, return result
-# Usage: runner.sh <script.jsx> [args-json]
+# Usage: runner.sh [--background] <script.jsx> [args-json]
+#
+# Flags:
+#   --background  Skip ae.activate() (no focus-steal) and poll for result file
 #
 # - Detects installed AE versions in /Applications
 # - If multiple found and no cached choice, prints them and exits with code 2
@@ -17,6 +20,17 @@ ARGS_FILE="/tmp/ae-assistant-args.json"
 RESULT_FILE="/tmp/ae-assistant-result.json"
 ERROR_FILE="/tmp/ae-assistant-error.txt"
 LOG_FILE="$HOME/.ae-assistant-log"
+OSASCRIPT_TIMEOUT=60
+BACKGROUND_POLL_TIMEOUT=15
+
+# --- Parse flags ---
+
+BACKGROUND=false
+if [[ "${1:-}" == "--background" ]]; then
+    BACKGROUND=true
+    shift
+fi
+
 SCRIPT_PATH="$1"
 ARGS_JSON="${2:-}"
 
@@ -107,18 +121,67 @@ rm -f "$ERROR_FILE"
 # 2. ExtendScript-level errors (caught by DoScript try/catch wrapper)
 # 3. Script-level errors (caught by the script's own try/catch)
 
-JXA_OUTPUT=$(osascript -l JavaScript -e "
-    var ae = Application(\"$AE_APP\");
-    ae.activate();
-    try {
-        ae.doscriptfile(\"$SCRIPT_PATH\");
-    } catch(e) {
-        // Write the JXA-level error to the error file
-        var app = Application.currentApplication();
-        app.includeStandardAdditions = true;
-        app.doShellScript('echo ' + JSON.stringify(String(e)) + ' > /tmp/ae-assistant-error.txt');
-    }
-" 2>&1) || true
+if [[ "$BACKGROUND" == true ]]; then
+    log "MODE: background (no activate)"
+    JXA_SCRIPT="
+        var ae = Application(\"$AE_APP\");
+        try {
+            ae.doscriptfile(\"$SCRIPT_PATH\");
+        } catch(e) {
+            var app = Application.currentApplication();
+            app.includeStandardAdditions = true;
+            app.doShellScript('echo ' + JSON.stringify(String(e)) + ' > /tmp/ae-assistant-error.txt');
+        }
+    "
+else
+    JXA_SCRIPT="
+        var ae = Application(\"$AE_APP\");
+        ae.activate();
+        try {
+            ae.doscriptfile(\"$SCRIPT_PATH\");
+        } catch(e) {
+            var app = Application.currentApplication();
+            app.includeStandardAdditions = true;
+            app.doShellScript('echo ' + JSON.stringify(String(e)) + ' > /tmp/ae-assistant-error.txt');
+        }
+    "
+fi
+
+# Run osascript with a timeout watchdog (timeout/gtimeout not available on stock macOS)
+osascript -l JavaScript -e "$JXA_SCRIPT" > /tmp/ae-jxa-out.txt 2>&1 &
+JXA_PID=$!
+( sleep "$OSASCRIPT_TIMEOUT" && kill "$JXA_PID" 2>/dev/null ) &
+WATCHDOG_PID=$!
+wait "$JXA_PID" 2>/dev/null
+EXIT_CODE=$?
+kill "$WATCHDOG_PID" 2>/dev/null
+wait "$WATCHDOG_PID" 2>/dev/null
+JXA_OUTPUT=$(cat /tmp/ae-jxa-out.txt)
+rm -f /tmp/ae-jxa-out.txt
+
+if [[ $EXIT_CODE -eq 137 || $EXIT_CODE -eq 143 ]]; then
+    log "ERROR: osascript timed out after ${OSASCRIPT_TIMEOUT}s"
+    echo "{\"error\": \"Script timed out after ${OSASCRIPT_TIMEOUT} seconds\", \"script\": \"$SCRIPT_PATH\"}"
+    exit 1
+fi
+
+# --- Poll for result in background mode ---
+
+if [[ "$BACKGROUND" == true && ! -f "$RESULT_FILE" && ! -f "$ERROR_FILE" ]]; then
+    ELAPSED=0
+    while [[ $ELAPSED -lt $BACKGROUND_POLL_TIMEOUT ]]; do
+        sleep 1
+        ELAPSED=$((ELAPSED + 1))
+        if [[ -f "$RESULT_FILE" || -f "$ERROR_FILE" ]]; then
+            break
+        fi
+    done
+    if [[ ! -f "$RESULT_FILE" && ! -f "$ERROR_FILE" ]]; then
+        log "ERROR: background poll timed out after ${BACKGROUND_POLL_TIMEOUT}s"
+        echo "{\"error\": \"Background poll timed out after ${BACKGROUND_POLL_TIMEOUT} seconds — result file not produced\", \"script\": \"$SCRIPT_PATH\"}"
+        exit 1
+    fi
+fi
 
 # --- Read result ---
 
